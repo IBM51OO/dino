@@ -12,6 +12,24 @@
   const SHOP_SPAWN_LOOKAHEAD_KM = 0.24;
   const COINS_PER_KM = 3;
   const H2O_COIN_REWARD = 5;
+  const MERGE_EVENT_MIN_BEFORE_SHOP_KM = 0.85;
+  const MERGE_EVENT_MAX_BEFORE_SHOP_KM = 1.55;
+  const MERGE_EVENT_MIN_SECONDS = 15;
+  const MERGE_EVENT_MAX_SECONDS = 20;
+  const MERGE_GIT_SPAWN_MIN_MS = 520;
+  const MERGE_GIT_SPAWN_MAX_MS = 860;
+  const MERGE_BOT_X = VIRTUAL_WIDTH / 2 + 92;
+  const MERGE_BOT_GROUND_Y = GROUND_Y;
+  const MERGE_BOT_MIN_Y = GROUND_Y - 116;
+  const MERGE_BOT_VERTICAL_SPEED = 178;
+  const MERGE_BOT_LOOKAHEAD_X = 190;
+  const MERGE_BOT_MISS_CHANCE = 18;
+  const MERGE_BOT_COLLECT_ERROR_MIN = 10;
+  const MERGE_BOT_COLLECT_ERROR_MAX = 15;
+  const MERGE_PLAYER_COIN_SPAWN_X = VIRTUAL_WIDTH / 2 - 12;
+  const MERGE_BOT_COIN_SPAWN_X = VIRTUAL_WIDTH + 24;
+  const MERGE_PLAYER_COIN_OFFSETS = [34, 64, 94];
+  const MERGE_BOT_COIN_OFFSETS = [34, 64, 94];
   const SHOP_STOPS = [
     { km: 5, name: 'Лавка у старта' },
     { km: 10, name: 'Пункт воды' },
@@ -44,6 +62,7 @@
       { key: 'cone', path: 'assets/sprites/obstacle-cone.png' },
     ],
     collectibles: [{ key: 'h2o-bottle', path: 'assets/sprites/h2o-bottle.png' }],
+    event: { gitToken: { key: 'git-token', path: 'assets/sprites/git-token.png' } },
     shops: [{ key: 'shop-stand', path: 'assets/sprites/shop-stand.png' }],
     backgrounds: [
       { key: 'clouds', path: 'assets/backgrounds/clouds.png' },
@@ -77,6 +96,7 @@
         this.load.image(ASSETS.character.slide.key, ASSETS.character.slide.path);
         ASSETS.obstacles.forEach((asset) => this.load.image(asset.key, asset.path));
         ASSETS.collectibles.forEach((asset) => this.load.image(asset.key, asset.path));
+        this.load.image(ASSETS.event.gitToken.key, ASSETS.event.gitToken.path);
         ASSETS.shops.forEach((asset) => this.load.image(asset.key, asset.path));
         ASSETS.backgrounds.forEach((asset) => this.load.image(asset.key, asset.path));
       }
@@ -101,6 +121,17 @@
       };
       this.spawnedShopIndex = 0;
       this.currentShopSprite = null;
+      this.mergeEvents = SHOP_STOPS.map((stop, index) => ({
+        shopIndex: index,
+        km: Math.max(0.35, stop.km - Phaser.Math.FloatBetween(MERGE_EVENT_MIN_BEFORE_SHOP_KM, MERGE_EVENT_MAX_BEFORE_SHOP_KM)),
+        triggered: false,
+        resolved: false,
+      }));
+      this.mergeConflict = null;
+      this.mergeInputLockUntil = 0;
+      this.mergeControlLockUntil = 0;
+      this.gitScore = { player: 0, bot: 0 };
+      this.botDino = null;
       this.runFrame = 0;
       this.nextRunFrameAt = 0;
       this.nextObstacleAt = 720;
@@ -153,9 +184,12 @@
       this.obstacles = this.physics.add.group({ allowGravity: false, immovable: true });
       this.collectibles = this.physics.add.group({ allowGravity: false, immovable: true });
       this.shops = this.physics.add.group({ allowGravity: false, immovable: true });
+      this.playerGitCoins = this.physics.add.group({ allowGravity: false, immovable: true });
+      this.botGitCoins = this.physics.add.group({ allowGravity: false, immovable: true });
 
       this.physics.add.overlap(this.player, this.obstacles, (player, obstacle) => this.hitObstacle(obstacle), null, this);
       this.physics.add.overlap(this.player, this.collectibles, (player, bottle) => this.collectBottle(bottle), null, this);
+      this.physics.add.overlap(this.player, this.playerGitCoins, (player, coin) => this.collectGitCoin(coin, 'player'), null, this);
     }
 
     createHud() {
@@ -188,6 +222,7 @@
         }
       });
 
+      this.createMergeConflictUi();
       this.createShopPanel();
       this.createResultPanel();
       this.updateHud();
@@ -254,6 +289,106 @@
           .setDepth(32);
         return { marker, label };
       });
+    }
+
+    createMergeConflictUi() {
+      this.mergeUi = this.add.container(0, 0).setDepth(6).setVisible(false);
+      this.mergePlayerLane = this.add.rectangle(VIRTUAL_WIDTH / 4, 164, VIRTUAL_WIDTH / 2, 178, 0x193657, 0.24);
+      this.mergeBotLane = this.add.rectangle((VIRTUAL_WIDTH * 3) / 4, 164, VIRTUAL_WIDTH / 2, 178, 0x111943, 0.34);
+      this.mergeDivider = this.add.rectangle(VIRTUAL_WIDTH / 2, 164, 3, 178, 0xfff6d8, 0.65);
+      this.mergeBranchLinePlayer = this.add.rectangle(VIRTUAL_WIDTH / 4, GROUND_Y + 5, VIRTUAL_WIDTH / 2, 2, 0x80ff8f, 0.58);
+      this.mergeBranchLineBot = this.add.rectangle((VIRTUAL_WIDTH * 3) / 4, MERGE_BOT_GROUND_Y + 5, VIRTUAL_WIDTH / 2, 2, 0xff657f, 0.58);
+      this.mergeTitleText = this.add
+        .text(VIRTUAL_WIDTH / 2, 33, 'MERGE CONFLICT', {
+          fontFamily: 'Consolas, Monaco, monospace',
+          fontSize: '22px',
+          color: '#ff657f',
+          stroke: '#070a1e',
+          strokeThickness: 5,
+        })
+        .setOrigin(0.5);
+      this.mergeInfoText = this.add
+        .text(VIRTUAL_WIDTH / 2, 57, 'left: player  |  right: bot', {
+          fontFamily: 'Consolas, Monaco, monospace',
+          fontSize: '10px',
+          color: '#fff6d8',
+          stroke: '#070a1e',
+          strokeThickness: 3,
+        })
+        .setOrigin(0.5);
+      this.mergePlayerLabel = this.add
+        .text(9, GROUND_Y - 62, 'YOUR BRANCH', {
+          fontFamily: 'Consolas, Monaco, monospace',
+          fontSize: '9px',
+          color: '#80ff8f',
+          stroke: '#070a1e',
+          strokeThickness: 3,
+        })
+        .setOrigin(0, 0.5);
+      this.mergeBotLabel = this.add
+        .text(VIRTUAL_WIDTH / 2 + 9, MERGE_BOT_GROUND_Y - 62, 'BOT BRANCH', {
+          fontFamily: 'Consolas, Monaco, monospace',
+          fontSize: '9px',
+          color: '#ff8fb0',
+          stroke: '#070a1e',
+          strokeThickness: 3,
+        })
+        .setOrigin(0, 0.5);
+      this.mergeScoreText = this.add
+        .text(VIRTUAL_WIDTH - 10, 33, '', {
+          fontFamily: 'Consolas, Monaco, monospace',
+          fontSize: '11px',
+          color: '#fff6d8',
+          stroke: '#070a1e',
+          strokeThickness: 3,
+          align: 'right',
+        })
+        .setOrigin(1, 0.5);
+
+      this.mergeUi.add([
+        this.mergePlayerLane,
+        this.mergeBotLane,
+        this.mergeDivider,
+        this.mergeBranchLinePlayer,
+        this.mergeBranchLineBot,
+        this.mergeTitleText,
+        this.mergeInfoText,
+        this.mergePlayerLabel,
+        this.mergeBotLabel,
+        this.mergeScoreText,
+      ]);
+
+      this.mergeIntroPanel = this.add.container(VIRTUAL_WIDTH / 2, VIRTUAL_HEIGHT / 2).setDepth(80).setVisible(false);
+      const introShade = this.add.rectangle(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT, 0x070a1e, 0.72);
+      const introBg = this.add.rectangle(0, 0, 408, 154, 0x101330, 0.97).setStrokeStyle(2, 0xff657f, 0.85);
+      const introTitle = this.add
+        .text(0, -50, 'MERGE CONFLICT', {
+          fontFamily: 'Consolas, Monaco, monospace',
+          fontSize: '24px',
+          color: '#ff657f',
+          stroke: '#070a1e',
+          strokeThickness: 5,
+        })
+        .setOrigin(0.5);
+      const introBody = this.add
+        .text(0, -4, 'Экран разделится: слева ты, справа бот.\nЗа 15–20 секунд собери больше git-значков.\nЕсли бот соберёт больше — забег начнётся заново.', {
+          fontFamily: 'Consolas, Monaco, monospace',
+          fontSize: '11px',
+          color: '#fff6d8',
+          align: 'center',
+          lineSpacing: 4,
+        })
+        .setOrigin(0.5);
+      const introHint = this.add
+        .text(0, 56, 'PRESS ANY KEY / TAP TO START', {
+          fontFamily: 'Consolas, Monaco, monospace',
+          fontSize: '11px',
+          color: '#80ff8f',
+          stroke: '#070a1e',
+          strokeThickness: 3,
+        })
+        .setOrigin(0.5);
+      this.mergeIntroPanel.add([introShade, introBg, introTitle, introBody, introHint]);
     }
 
     createShopPanel() {
@@ -384,7 +519,12 @@
         enter: Phaser.Input.Keyboard.KeyCodes.ENTER,
       });
 
+      this.input.keyboard.on('keydown', () => {
+        this.confirmMergeIntro();
+      });
+
       this.input.on('pointerdown', (pointer) => {
+        if (this.confirmMergeIntro()) return;
         if ((this.isGameOver || this.isFinished) && !isPointerOnControls(pointer)) {
           this.scene.restart();
         }
@@ -398,17 +538,40 @@
         return;
       }
 
+      if (this.mergeConflict?.waitingForStart) {
+        this.updateHud();
+        return;
+      }
+
       const dt = delta / 1000;
       this.updateBuffTimers(dt);
 
       const paceAcceleration = this.buffs.gel > 0 ? 1.2 : 3.8;
       this.gameSpeed = Math.min(MAX_SPEED, this.gameSpeed + paceAcceleration * dt);
       const scrollSpeed = this.getScrollSpeed();
+
+      if (this.mergeConflict?.active) {
+        this.scrollWorld(scrollSpeed, dt);
+        this.updatePlayerAnimation(time);
+        this.updateMergeConflict(delta, scrollSpeed, time);
+        this.updateMovingObjects(scrollSpeed);
+        this.updateHud();
+        return;
+      }
+
       const previousDistance = this.distance;
       const nextDistance = Math.min(RACE_DISTANCE_KM, this.distance + scrollSpeed * dt * KM_PER_SPEED_SECOND);
       const nextShop = SHOP_STOPS[this.visitedShopIndex];
 
       this.spawnUpcomingShop(nextDistance);
+
+      if (this.shouldStartMergeConflict(nextDistance)) {
+        this.distance = nextDistance;
+        this.awardCoinsForDistance(previousDistance, this.distance);
+        this.startMergeConflict();
+        this.updateHud();
+        return;
+      }
 
       if (nextShop && nextDistance >= nextShop.km) {
         this.distance = nextShop.km;
@@ -420,11 +583,7 @@
 
       this.distance = nextDistance;
       this.awardCoinsForDistance(previousDistance, this.distance);
-
-      this.clouds.tilePositionX += scrollSpeed * dt * 0.07;
-      this.cityFar.tilePositionX += scrollSpeed * dt * 0.18;
-      this.treesMid.tilePositionX += scrollSpeed * dt * 0.42;
-      this.road.tilePositionX += scrollSpeed * dt;
+      this.scrollWorld(scrollSpeed, dt);
 
       this.updatePlayerAnimation(time);
       this.updateSpawning(delta);
@@ -436,7 +595,21 @@
       }
     }
 
+    scrollWorld(scrollSpeed, dt) {
+      this.clouds.tilePositionX += scrollSpeed * dt * 0.07;
+      this.cityFar.tilePositionX += scrollSpeed * dt * 0.18;
+      this.treesMid.tilePositionX += scrollSpeed * dt * 0.42;
+      this.road.tilePositionX += scrollSpeed * dt;
+    }
+
     readKeyboard() {
+      if (this.mergeConflict?.waitingForStart) {
+        return;
+      }
+      if (this.mergeConflict?.active && this.time.now < this.mergeControlLockUntil) {
+        return;
+      }
+
       if (this.isShopping) {
         if (Phaser.Input.Keyboard.JustDown(this.keys.one)) this.buyShopItem(0);
         if (Phaser.Input.Keyboard.JustDown(this.keys.two)) this.buyShopItem(1);
@@ -472,7 +645,8 @@
     }
 
     jump() {
-      if (this.isShopping) return;
+      if (this.isShopping || this.mergeConflict?.waitingForStart) return;
+      if (this.mergeConflict?.active && this.time.now < this.mergeControlLockUntil) return;
       if (this.isGameOver || this.isFinished) {
         this.scene.restart();
         return;
@@ -498,7 +672,7 @@
     }
 
     startSlide() {
-      if (this.isShopping || this.isFinished || this.isGameOver || this.isSliding) {
+      if (this.isShopping || this.mergeConflict?.waitingForStart || this.mergeConflict?.active && this.time.now < this.mergeControlLockUntil || this.isFinished || this.isGameOver || this.isSliding) {
         return;
       }
 
@@ -623,6 +797,18 @@
           shop.destroy();
         }
       });
+
+      this.playerGitCoins.children.each((coin) => this.updateGitCoinSprite(coin, scrollSpeed, 'player'));
+      this.botGitCoins.children.each((coin) => this.updateGitCoinSprite(coin, scrollSpeed, 'bot'));
+    }
+
+    updateGitCoinSprite(coin, scrollSpeed, owner) {
+      coin.body.setVelocityX(-scrollSpeed * 1.02);
+      coin.angle += 5;
+      const leftBound = owner === 'bot' ? VIRTUAL_WIDTH / 2 - 8 : -32;
+      if (coin.x < leftBound) {
+        coin.destroy();
+      }
     }
 
     spawnUpcomingShop(nextDistance) {
@@ -641,6 +827,259 @@
       shop.stopIndex = this.spawnedShopIndex;
       this.currentShopSprite = shop;
       this.spawnedShopIndex += 1;
+    }
+
+    shouldStartMergeConflict(nextDistance) {
+      const event = this.mergeEvents[this.visitedShopIndex];
+      return Boolean(event && !event.triggered && !event.resolved && nextDistance >= event.km);
+    }
+
+    startMergeConflict() {
+      const event = this.mergeEvents[this.visitedShopIndex];
+      if (!event) return;
+
+      event.triggered = true;
+      this.gitScore.player = 0;
+      this.gitScore.bot = 0;
+      this.mergeConflict = {
+        active: false,
+        waitingForStart: true,
+        event,
+        timeLeft: Phaser.Math.Between(MERGE_EVENT_MIN_SECONDS, MERGE_EVENT_MAX_SECONDS),
+        nextPlayerCoinAt: 0,
+        nextBotCoinAt: 0,
+        botDecisionAt: 0,
+        botTarget: null,
+      };
+
+      this.nextObstacleAt = Math.max(this.nextObstacleAt, 1300);
+      this.nextCollectibleAt = Math.max(this.nextCollectibleAt, 1000);
+      this.obstacles.clear(true, true);
+      this.collectibles.clear(true, true);
+      this.playerGitCoins.clear(true, true);
+      this.botGitCoins.clear(true, true);
+      if (this.isSliding) this.endSlide();
+      this.jumpsLeft = 2;
+      this.mergeInputLockUntil = this.time.now + 180;
+      this.physics.pause();
+      this.mergeIntroPanel?.setVisible(true);
+      this.showMergeUi(false);
+      this.updateMergeHud();
+      this.soundBeep(180, 0.06);
+      this.soundBeep(260, 0.06);
+    }
+
+    confirmMergeIntro() {
+      const state = this.mergeConflict;
+      if (!state?.waitingForStart || this.time.now < this.mergeInputLockUntil) {
+        return false;
+      }
+
+      state.waitingForStart = false;
+      state.active = true;
+      state.nextPlayerCoinAt = 0;
+      state.nextBotCoinAt = 0;
+      state.botDecisionAt = 0;
+      state.botTarget = null;
+      this.mergeIntroPanel?.setVisible(false);
+      this.physics.resume();
+      this.mergeControlLockUntil = this.time.now + 160;
+      this.player.setTint(0x80ff8f);
+      this.cameras.main.flash(260, 255, 101, 127, false);
+      this.showMergeUi(true);
+      this.createBotDino();
+      this.updateMergeHud();
+      this.spawnPopup(VIRTUAL_WIDTH / 2, 88, 'MERGE CONFLICT');
+      return true;
+    }
+
+    showMergeUi(visible) {
+      this.mergeUi?.setVisible(visible);
+    }
+
+    createBotDino() {
+      if (this.botGitOverlap) {
+        this.botGitOverlap.destroy();
+        this.botGitOverlap = null;
+      }
+      if (this.botDino?.active) {
+        this.botDino.destroy();
+      }
+      this.botDino = this.physics.add.sprite(MERGE_BOT_X, MERGE_BOT_GROUND_Y - 2, 'dino-run-0');
+      this.botDino.setOrigin(0.5, 1);
+      this.botDino.setDepth(8);
+      this.botDino.setTint(0xff8fb0);
+      this.botDino.body.allowGravity = false;
+      this.botDino.body.setSize(24, 27).setOffset(6, 4);
+      this.botGitOverlap = this.physics.add.overlap(this.botDino, this.botGitCoins, (bot, coin) => this.collectGitCoin(coin, 'bot'), null, this);
+    }
+
+    updateMergeConflict(delta, scrollSpeed, time) {
+      const state = this.mergeConflict;
+      if (!state?.active) return;
+
+      state.timeLeft -= delta / 1000;
+      state.nextPlayerCoinAt -= delta;
+      state.nextBotCoinAt -= delta;
+
+      if (state.nextPlayerCoinAt <= 0) {
+        this.spawnGitCoin('player');
+        state.nextPlayerCoinAt = Phaser.Math.Between(MERGE_GIT_SPAWN_MIN_MS, MERGE_GIT_SPAWN_MAX_MS);
+      }
+      if (state.nextBotCoinAt <= 0) {
+        this.spawnGitCoin('bot');
+        state.nextBotCoinAt = Phaser.Math.Between(MERGE_GIT_SPAWN_MIN_MS, MERGE_GIT_SPAWN_MAX_MS);
+      }
+
+      this.updateBotRunner(delta, time);
+      this.updateMergeHud();
+
+      if (state.timeLeft <= 0) {
+        this.finishMergeConflict();
+      }
+    }
+
+    spawnGitCoin(owner) {
+      const isBot = owner === 'bot';
+      const offsets = isBot ? MERGE_BOT_COIN_OFFSETS : MERGE_PLAYER_COIN_OFFSETS;
+      const groundY = isBot ? MERGE_BOT_GROUND_Y : GROUND_Y;
+      const y = groundY - offsets[Phaser.Math.Between(0, offsets.length - 1)];
+      const group = isBot ? this.botGitCoins : this.playerGitCoins;
+      const spawnX = isBot ? MERGE_BOT_COIN_SPAWN_X : MERGE_PLAYER_COIN_SPAWN_X;
+      const coin = group.create(spawnX, y, 'git-token');
+      coin.setOrigin(0.5);
+      coin.setDepth(9);
+      coin.body.allowGravity = false;
+      coin.body.immovable = true;
+      coin.body.setVelocityX(-this.getScrollSpeed() * 1.02);
+      coin.body.setSize(15, 15).setOffset(2, 2);
+      coin.value = 1;
+      coin.spawnOffset = Phaser.Math.Between(0, 999);
+    }
+
+    collectGitCoin(coin, owner) {
+      if (!coin?.active || !this.mergeConflict?.active) return;
+      if (owner === 'bot') {
+        const errorChance = Phaser.Math.Between(MERGE_BOT_COLLECT_ERROR_MIN, MERGE_BOT_COLLECT_ERROR_MAX);
+        if (Phaser.Math.Between(1, 100) <= errorChance) {
+          coin.destroy();
+          this.mergeConflict.botTarget = null;
+          return;
+        }
+      }
+
+      const x = coin.x;
+      const y = coin.y;
+      coin.destroy();
+      this.gitScore[owner] += 1;
+      if (owner === 'player') {
+        this.soundBeep(880, 0.025);
+        this.spawnPopup(x, y, '+1 git');
+      }
+      this.updateMergeHud();
+    }
+
+    updateBotRunner(delta, time) {
+      if (!this.botDino?.active) return;
+      const state = this.mergeConflict;
+      if (time >= state.botDecisionAt) {
+        state.botDecisionAt = time + Phaser.Math.Between(160, 260);
+        state.botTarget = this.pickBotTargetCoin();
+      }
+
+      const scoreLead = this.gitScore.bot - this.gitScore.player;
+      const targetY = state.botTarget?.active ? state.botTarget.y : MERGE_BOT_GROUND_Y - 16;
+      const botSpeed = MERGE_BOT_VERTICAL_SPEED + Phaser.Math.Clamp(scoreLead, -3, 5) * 12;
+      const nextY = this.moveTowards(this.botDino.y, targetY, botSpeed * (delta / 1000));
+      this.botDino.setY(Phaser.Math.Clamp(nextY, MERGE_BOT_MIN_Y, MERGE_BOT_GROUND_Y - 2));
+
+      if (time >= this.nextRunFrameAt - 45) {
+        const frames = ASSETS.character.run;
+        this.botDino.setTexture(frames[(this.runFrame + 1) % frames.length].key);
+      }
+    }
+
+    pickBotTargetCoin() {
+      let bestCoin = null;
+      let bestDistance = Number.POSITIVE_INFINITY;
+      this.botGitCoins.children.each((coin) => {
+        if (!coin.active || coin.x < this.botDino.x || coin.x > this.botDino.x + MERGE_BOT_LOOKAHEAD_X) return;
+        const adaptiveMissChance = Phaser.Math.Clamp(MERGE_BOT_MISS_CHANCE + (this.gitScore.bot - this.gitScore.player) * 4, 6, 34);
+        if (Phaser.Math.Between(0, 99) < adaptiveMissChance) return;
+        const distance = Math.abs(coin.x - this.botDino.x) + Math.abs(coin.y - this.botDino.y) * 1.6;
+        if (distance < bestDistance) {
+          bestCoin = coin;
+          bestDistance = distance;
+        }
+      });
+      return bestCoin;
+    }
+
+    moveTowards(current, target, maxDelta) {
+      if (Math.abs(target - current) <= maxDelta) {
+        return target;
+      }
+      return current + (target > current ? 1 : -1) * maxDelta;
+    }
+
+    updateMergeHud() {
+      if (!this.mergeScoreText || !this.mergeConflict?.active) return;
+      this.mergeScoreText.setText(
+        `TIME ${Math.max(0, Math.ceil(this.mergeConflict.timeLeft))}s\nPLAYER ${this.gitScore.player} git\nBOT ${this.gitScore.bot} git`,
+      );
+    }
+
+    finishMergeConflict() {
+      const state = this.mergeConflict;
+      if (!state?.active) return;
+
+      state.active = false;
+      state.event.resolved = true;
+      this.playerGitCoins.clear(true, true);
+      this.botGitCoins.clear(true, true);
+      if (this.botGitOverlap) {
+        this.botGitOverlap.destroy();
+        this.botGitOverlap = null;
+      }
+      if (this.botDino?.active) {
+        this.botDino.destroy();
+      }
+      this.botDino = null;
+      this.showMergeUi(false);
+      this.player.clearTint();
+
+      if (this.gitScore.player >= this.gitScore.bot) {
+        this.buffs.invulnerable = Math.max(this.buffs.invulnerable, 1);
+        this.nextObstacleAt = Math.max(this.nextObstacleAt, 1150);
+        this.nextCollectibleAt = Math.max(this.nextCollectibleAt, 900);
+        this.cameras.main.flash(240, 128, 255, 143, false);
+        this.spawnPopup(VIRTUAL_WIDTH / 2, 92, `MERGE WIN ${this.gitScore.player}:${this.gitScore.bot}`);
+        this.soundBeep(920, 0.06);
+        this.mergeConflict = null;
+        this.updateHud();
+        return;
+      }
+
+      this.mergeConflict = null;
+      this.loseMergeConflict();
+    }
+
+    loseMergeConflict() {
+      this.isGameOver = true;
+      this.physics.pause();
+      if (this.isSliding) this.endSlide();
+      this.player.setTint(0xff657f);
+      this.cameras.main.shake(180, 0.012);
+      this.soundBeep(110, 0.08);
+
+      const finalDistance = Math.floor(this.distance * 10) / 10;
+      this.saveBestDistance(finalDistance);
+      this.resultTitle.setText('MERGE CONFLICT LOST');
+      this.resultTitle.setColor('#ff657f');
+      this.resultScore.setText(
+        `BOT СОБРАЛ БОЛЬШЕ git-ВАЛЮТЫ\nPLAYER ${this.gitScore.player}   BOT ${this.gitScore.bot}\nДИСТ ${formatKm(finalDistance)} / ${RACE_DISTANCE_KM} КМ\nРЕКОРД ${formatKm(this.bestDistance)} КМ`,
+      );
+      this.resultPanel.setVisible(true);
     }
 
     spawnObstacle() {
@@ -870,14 +1309,22 @@
     }
 
     getBuffHudText() {
+      if (this.mergeConflict?.active) {
+        return `MERGE CONFLICT ${Math.max(0, Math.ceil(this.mergeConflict.timeLeft))}с   PLAYER ${this.gitScore.player} git   BOT ${this.gitScore.bot} git`;
+      }
+
       const parts = [];
       if (this.buffs.gel > 0) parts.push(`ГЕЛЬ ${Math.ceil(this.buffs.gel)}с`);
       if (this.buffs.shoes > 0) parts.push(`КРОССОВКИ ${Math.ceil(this.buffs.shoes)}с`);
       if (this.buffs.shield > 0) parts.push(`ЩИТ x${this.buffs.shield}`);
       if (this.buffs.invulnerable > 0) parts.push(`НЕУЯЗВИМ ${Math.ceil(this.buffs.invulnerable)}с`);
       const nextShop = SHOP_STOPS[this.visitedShopIndex];
-      if (nextShop) parts.push(`СЛЕД. МАГАЗИН ${formatKm(nextShop.km)}К`);
-      return parts.length ? parts.join('   ') : 'БАФОВ НЕТ   СЛЕД. МАГАЗИН 5.0К';
+      if (nextShop) {
+        parts.push(`СЛЕД. МАГАЗИН ${formatKm(nextShop.km)}К`);
+      } else {
+        parts.push('ФИНИШ ВПЕРЕДИ');
+      }
+      return parts.length ? parts.join('   ') : 'БАФОВ НЕТ';
     }
 
     soundBeep(frequency, duration) {
@@ -1028,6 +1475,7 @@
     makeTexture(scene, 'hurdle', 28, 24, (ctx) => drawHurdle(ctx));
     makeTexture(scene, 'cone', 22, 30, (ctx) => drawCone(ctx));
     makeTexture(scene, 'h2o-bottle', 17, 22, (ctx) => drawBottle(ctx));
+    makeTexture(scene, 'git-token', 19, 19, (ctx) => drawGitToken(ctx));
     makeTexture(scene, 'shop-stand', 58, 46, (ctx) => drawShopStand(ctx));
   }
 
@@ -1206,6 +1654,26 @@
     ctx.fillRect(6, 13, 5, 1);
     ctx.fillStyle = '#ff657f';
     ctx.fillRect(7, 0, 3, 2);
+  }
+
+  function drawGitToken(ctx) {
+    ctx.clearRect(0, 0, 19, 19);
+    ctx.fillStyle = '#102c35';
+    ctx.fillRect(7, 1, 5, 5);
+    ctx.fillRect(11, 5, 5, 5);
+    ctx.fillRect(3, 5, 5, 5);
+    ctx.fillRect(7, 9, 5, 5);
+    ctx.fillRect(7, 13, 5, 5);
+    ctx.fillStyle = '#ff657f';
+    ctx.fillRect(8, 2, 3, 3);
+    ctx.fillRect(12, 6, 3, 3);
+    ctx.fillRect(4, 6, 3, 3);
+    ctx.fillRect(8, 10, 3, 3);
+    ctx.fillRect(8, 14, 3, 3);
+    ctx.fillStyle = '#fff6d8';
+    ctx.fillRect(9, 3, 1, 12);
+    ctx.fillRect(6, 7, 7, 1);
+    ctx.fillRect(9, 11, 4, 1);
   }
 
   function drawShopStand(ctx) {
