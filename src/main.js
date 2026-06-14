@@ -12,6 +12,8 @@
   const SHOP_SPAWN_LOOKAHEAD_KM = 0.24;
   const COINS_PER_KM = 3;
   const H2O_COIN_REWARD = 5;
+  const DINO_BIB_NUMBER = '42';
+  const BACKGROUND_RUNNER_BIBS = ['07', '13', '21', '26', '38', '42', '57', '88'];
   const MERGE_EVENT_MIN_BEFORE_SHOP_KM = 0.85;
   const MERGE_EVENT_MAX_BEFORE_SHOP_KM = 1.55;
   const MERGE_EVENT_MIN_SECONDS = 15;
@@ -130,10 +132,16 @@
       this.mergeConflict = null;
       this.mergeInputLockUntil = 0;
       this.mergeControlLockUntil = 0;
+      this.retroMusic = null;
+      this.retroMusicTimer = null;
+      this.retroMusicStep = 0;
+      this.retroMusicStopAt = 0;
       this.gitScore = { player: 0, bot: 0 };
       this.botDino = null;
       this.runFrame = 0;
       this.nextRunFrameAt = 0;
+      this.backgroundRunnerFrame = 0;
+      this.nextBackgroundRunnerFrameAt = 0;
       this.nextObstacleAt = 720;
       this.nextCollectibleAt = 1300;
       this.jumpsLeft = 2;
@@ -144,6 +152,7 @@
       this.bestDistance = Math.min(RACE_DISTANCE_KM, readBestDistance());
 
       this.createWorld();
+      this.createBackgroundRunners();
       this.createPlayer();
       this.createGroups();
       this.createHud();
@@ -164,6 +173,31 @@
       this.ground = this.physics.add.staticImage(VIRTUAL_WIDTH / 2, GROUND_Y + 14, 'solid');
       this.ground.setDisplaySize(VIRTUAL_WIDTH + 48, 28).refreshBody();
       this.ground.setVisible(false);
+    }
+
+    createBackgroundRunners() {
+      this.backgroundRunners = [];
+      const rows = [
+        { y: 191, scale: 0.82, speed: 23, alpha: 0.82 },
+        { y: 199, scale: 0.9, speed: 31, alpha: 0.9 },
+        { y: 207, scale: 0.98, speed: 39, alpha: 0.96 },
+      ];
+
+      rows.forEach((row, rowIndex) => {
+        for (let index = 0; index < 4; index += 1) {
+          const bibIndex = (index + rowIndex * 2) % BACKGROUND_RUNNER_BIBS.length;
+          const runner = this.add.sprite(24 + index * 124 + rowIndex * 37, row.y, `runner-bg-${bibIndex}-0`);
+          runner.setOrigin(0.5, 1);
+          runner.setDepth(4 + rowIndex);
+          runner.setScale(row.scale);
+          runner.setAlpha(row.alpha);
+          runner.speed = row.speed + index * 3;
+          runner.frameOffset = (index + rowIndex) % 3;
+          runner.baseY = row.y;
+          runner.bibIndex = bibIndex;
+          this.backgroundRunners.push(runner);
+        }
+      });
     }
 
     createPlayer() {
@@ -600,6 +634,24 @@
       this.cityFar.tilePositionX += scrollSpeed * dt * 0.18;
       this.treesMid.tilePositionX += scrollSpeed * dt * 0.42;
       this.road.tilePositionX += scrollSpeed * dt;
+      this.updateBackgroundRunners(scrollSpeed, dt);
+    }
+
+    updateBackgroundRunners(scrollSpeed, dt) {
+      if (!this.backgroundRunners) return;
+      if (this.time.now >= this.nextBackgroundRunnerFrameAt) {
+        this.backgroundRunnerFrame = (this.backgroundRunnerFrame + 1) % 3;
+        this.nextBackgroundRunnerFrameAt = this.time.now + 150;
+      }
+
+      this.backgroundRunners.forEach((runner) => {
+        runner.x -= (runner.speed + scrollSpeed * 0.16) * dt;
+        if (runner.x < -24) {
+          runner.x = VIRTUAL_WIDTH + Phaser.Math.Between(16, 86);
+        }
+        runner.y = runner.baseY + Math.sin((this.time.now + runner.frameOffset * 180) * 0.012) * 1.2;
+        runner.setTexture(`runner-bg-${runner.bibIndex}-${(this.backgroundRunnerFrame + runner.frameOffset) % 3}`);
+      });
     }
 
     readKeyboard() {
@@ -865,6 +917,7 @@
       this.mergeIntroPanel?.setVisible(true);
       this.showMergeUi(false);
       this.updateMergeHud();
+      this.startRetroMusic();
       this.soundBeep(180, 0.06);
       this.soundBeep(260, 0.06);
     }
@@ -882,6 +935,7 @@
       state.botDecisionAt = 0;
       state.botTarget = null;
       this.mergeIntroPanel?.setVisible(false);
+      this.stopRetroMusic();
       this.physics.resume();
       this.mergeControlLockUntil = this.time.now + 160;
       this.player.setTint(0x80ff8f);
@@ -1327,6 +1381,70 @@
       return parts.length ? parts.join('   ') : 'БАФОВ НЕТ';
     }
 
+    startRetroMusic() {
+      this.stopRetroMusic();
+      if (!window.AudioContext && !window.webkitAudioContext) return;
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        const audio = GameScene.audioContext || new AudioCtx();
+        GameScene.audioContext = audio;
+        if (audio.state === 'suspended') audio.resume();
+
+        this.retroMusic = {
+          melody: [659, 784, 988, 784, 740, 880, 988, 880, 659, 784, 1047, 988, 880, 784, 740, 659],
+          bass: [165, 165, 196, 196, 247, 247, 196, 196],
+        };
+        this.retroMusicStep = 0;
+        this.playRetroMusicStep();
+        this.retroMusicTimer = this.time.addEvent({ delay: 140, loop: true, callback: () => this.playRetroMusicStep() });
+      } catch (error) {
+        this.retroMusic = null;
+      }
+    }
+
+    stopRetroMusic() {
+      if (this.retroMusicTimer) {
+        this.retroMusicTimer.remove(false);
+        this.retroMusicTimer = null;
+      }
+      this.retroMusic = null;
+    }
+
+    playRetroMusicStep() {
+      if (!this.retroMusic) return;
+      const step = this.retroMusicStep;
+      const melody = this.retroMusic.melody[step % this.retroMusic.melody.length];
+      const bass = this.retroMusic.bass[Math.floor(step / 2) % this.retroMusic.bass.length];
+      this.playRetroTone(melody, 0.09, 0.014);
+      if (step % 2 === 0) {
+        this.playRetroTone(bass, 0.13, 0.011);
+      }
+      if (step % 4 === 3) {
+        this.playRetroTone(melody * 1.5, 0.045, 0.007);
+      }
+      this.retroMusicStep += 1;
+    }
+
+    playRetroTone(frequency, duration, volume) {
+      try {
+        const audio = GameScene.audioContext;
+        if (!audio) return;
+        const oscillator = audio.createOscillator();
+        const gain = audio.createGain();
+        oscillator.type = 'square';
+        oscillator.frequency.value = frequency;
+        gain.gain.setValueAtTime(0.0001, audio.currentTime);
+        gain.gain.exponentialRampToValueAtTime(volume, audio.currentTime + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + duration);
+        oscillator.connect(gain);
+        gain.connect(audio.destination);
+        oscillator.start();
+        oscillator.stop(audio.currentTime + duration + 0.02);
+      } catch (error) {
+        // If WebAudio is blocked, the event intro remains playable without music.
+      }
+    }
+
     soundBeep(frequency, duration) {
       // Tiny generated SFX keeps the prototype local and asset-free. Real SFX can replace this later.
       if (!window.AudioContext && !window.webkitAudioContext) return;
@@ -1466,6 +1584,12 @@
       }
     });
 
+    BACKGROUND_RUNNER_BIBS.forEach((bib, bibIndex) => {
+      for (let frame = 0; frame < 3; frame += 1) {
+        makeTexture(scene, `runner-bg-${bibIndex}-${frame}`, 24, 32, (ctx) => drawBackgroundRunner(ctx, frame, bib, bibIndex));
+      }
+    });
+
     makeTexture(scene, 'dino-run-0', 36, 32, (ctx) => drawDino(ctx, 'run0'));
     makeTexture(scene, 'dino-run-1', 36, 32, (ctx) => drawDino(ctx, 'run1'));
     makeTexture(scene, 'dino-run-2', 36, 32, (ctx) => drawDino(ctx, 'run2'));
@@ -1495,6 +1619,85 @@
     ctx.fillRect(x + 15, y, 12, 11);
     ctx.fillStyle = 'rgba(96, 132, 218, 0.45)';
     ctx.fillRect(x + 3, y + 15, 24, 3);
+  }
+
+  function drawBib(ctx, x, y, width, height, number) {
+    const text = String(number).slice(0, 2).padStart(2, '0');
+    const digitMap = {
+      0: ['111', '101', '101', '101', '111'],
+      1: ['010', '110', '010', '010', '111'],
+      2: ['111', '001', '111', '100', '111'],
+      3: ['111', '001', '111', '001', '111'],
+      4: ['101', '101', '111', '001', '001'],
+      5: ['111', '100', '111', '001', '111'],
+      6: ['111', '100', '111', '101', '111'],
+      7: ['111', '001', '010', '010', '010'],
+      8: ['111', '101', '111', '101', '111'],
+      9: ['111', '101', '111', '001', '111'],
+    };
+    const gap = width >= 9 ? 1 : 0;
+    const totalWidth = text.length * 3 + (text.length - 1) * gap;
+    let digitX = x + 1 + Math.max(0, Math.floor((width - 2 - totalWidth) / 2));
+    const digitY = y + 1;
+
+    ctx.fillStyle = '#102c35';
+    ctx.fillRect(x, y, width, height);
+    ctx.fillStyle = '#fff6d8';
+    ctx.fillRect(x + 1, y + 1, width - 2, height - 2);
+    ctx.fillStyle = '#101330';
+    for (const char of text) {
+      const rows = digitMap[char] || digitMap[0];
+      rows.forEach((row, rowIndex) => {
+        for (let col = 0; col < row.length; col += 1) {
+          if (row[col] === '1') {
+            ctx.fillRect(digitX + col, digitY + rowIndex, 1, 1);
+          }
+        }
+      });
+      digitX += 3 + gap;
+    }
+  }
+
+  function drawBackgroundRunner(ctx, frame, bib, paletteIndex) {
+    ctx.clearRect(0, 0, 24, 32);
+    const shirts = ['#80ffef', '#ffb84d', '#ff657f', '#9fb7ff', '#80ff8f', '#fff0a6', '#c17dff', '#ff8fb0'];
+    const shorts = ['#25306f', '#2f2445', '#193657', '#4b2f39'];
+    const skin = ['#ffd0a6', '#b97955', '#f1ad78', '#6f4637'][paletteIndex % 4];
+    const shirt = shirts[paletteIndex % shirts.length];
+    const shortsColor = shorts[paletteIndex % shorts.length];
+    const forward = frame === 1;
+    const back = frame === 2;
+
+    ctx.fillStyle = 'rgba(7, 10, 30, 0.32)';
+    ctx.fillRect(5, 29, 14, 2);
+
+    ctx.fillStyle = '#102c35';
+    ctx.fillRect(9, 3, 7, 7);
+    ctx.fillRect(8, 10, 10, 11);
+    ctx.fillRect(forward ? 5 : 6, 12, 3, 8);
+    ctx.fillRect(back ? 18 : 17, 12, 3, 8);
+    ctx.fillRect(forward ? 7 : 9, 20, 3, 8);
+    ctx.fillRect(forward ? 14 : 13, 20, 3, 8);
+
+    ctx.fillStyle = skin;
+    ctx.fillRect(10, 5, 5, 5);
+    ctx.fillRect(forward ? 5 : 6, 14, 3, 5);
+    ctx.fillRect(back ? 18 : 17, 14, 3, 5);
+
+    ctx.fillStyle = shirt;
+    ctx.fillRect(9, 11, 8, 8);
+    ctx.fillStyle = shortsColor;
+    ctx.fillRect(9, 19, 8, 4);
+    drawBib(ctx, 9, 12, 8, 7, bib);
+
+    ctx.fillStyle = skin;
+    ctx.fillRect(forward ? 7 : 9, 22, 3, 5);
+    ctx.fillRect(forward ? 14 : 13, 22, 3, 5);
+    ctx.fillStyle = '#fff6d8';
+    ctx.fillRect(forward ? 5 : 8, 27, 6, 2);
+    ctx.fillRect(forward ? 13 : 12, 27, 6, 2);
+    ctx.fillStyle = '#101330';
+    ctx.fillRect(12, 6, 1, 1);
   }
 
   function drawDino(ctx, pose) {
@@ -1531,6 +1734,7 @@
     ctx.fillRect(27, 12, 2, 1);
     ctx.fillStyle = greenMid;
     ctx.fillRect(20, 17, 3, 5);
+    drawBib(ctx, 15, 15, 9, 7, DINO_BIB_NUMBER);
 
     if (pose === 'jump') {
       ctx.fillStyle = greenDark;
@@ -1583,6 +1787,7 @@
     ctx.fillRect(25, 6, 7, 4);
     ctx.fillStyle = '#fff0a6';
     ctx.fillRect(16, 13, 7, 3);
+    drawBib(ctx, 15, 12, 9, 6, DINO_BIB_NUMBER);
     ctx.fillStyle = '#111943';
     ctx.fillRect(30, 7, 2, 2);
     ctx.fillStyle = '#ffb84d';
