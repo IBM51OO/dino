@@ -13,3 +13,4 @@
 - `obstacle-hurdle.png`
 - `obstacle-cone.png`
 - `h2o-bottle.png`
+- `shop-stand.png`
