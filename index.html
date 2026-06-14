@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#16162f" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <title>Dino Pace Run</title>
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <main id="app" aria-label="Dino Pace Run game">
+      <section class="top-panel" aria-hidden="true">
+        <div>
+          <span class="eyebrow">local prototype</span>
+          <h1>Dino Pace Run</h1>
+        </div>
+        <p class="hint">Desktop: Space/W/↑ — jump, S/↓ — slide. Mobile: touch buttons.</p>
+      </section>
+
+      <section id="game-shell" class="game-shell">
+        <div id="game-container"></div>
+        <button id="fullscreen-button" class="fullscreen-button" type="button" aria-label="Fullscreen">⛶</button>
+        <div id="fallback" class="fallback" role="alert"></div>
+      </section>
+    </main>
+
+    <noscript>Для запуска Dino Pace Run нужен включенный JavaScript.</noscript>
+    <script src="./vendor/phaser.min.js"></script>
+    <script src="./src/main.js"></script>
+  </body>
+</html>
