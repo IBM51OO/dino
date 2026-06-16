@@ -1,0 +1,15 @@
+services:
+  dino:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8000
+      DB_PATH: /data/leaderboard.sqlite3
+    volumes:
+      - dino_leaderboard:/data
+    restart: unless-stopped
+
+volumes:
+  dino_leaderboard:

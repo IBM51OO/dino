@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import os
 import sqlite3
 import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -7,7 +8,9 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 
-DB_PATH = Path(__file__).with_name("leaderboard.sqlite3")
+DB_PATH = Path(os.environ.get("DB_PATH", Path(__file__).with_name("leaderboard.sqlite3")))
+HOST = os.environ.get("HOST", "127.0.0.1")
+PORT = int(os.environ.get("PORT", "8000"))
 RACE_DISTANCE_KM = 42.0
 LEADERBOARD_LIMIT = 10
 DEFAULT_PLAYER_NAME = "PLAYER"
@@ -29,7 +32,7 @@ def connect_db():
     try:
         connection.execute("ALTER TABLE leaderboard ADD COLUMN player_name TEXT NOT NULL DEFAULT 'PLAYER'")
     except sqlite3.OperationalError:
-      pass
+        pass
     connection.commit()
     return connection
 
@@ -161,9 +164,11 @@ class GameRequestHandler(SimpleHTTPRequestHandler):
 
 
 def main():
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     connect_db().close()
-    server = ThreadingHTTPServer(("127.0.0.1", 8000), GameRequestHandler)
-    print("Serving Dino Pace Run with SQLite leaderboard at http://localhost:8000")
+    server = ThreadingHTTPServer((HOST, PORT), GameRequestHandler)
+    print(f"Serving Dino Pace Run with SQLite leaderboard at http://{HOST}:{PORT}")
+    print(f"SQLite database: {DB_PATH}")
     server.serve_forever()
 
 
