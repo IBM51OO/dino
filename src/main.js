@@ -44,6 +44,9 @@
     { id: 'shoes', name: 'Пружинные кроссовки', price: 14, effect: 'Усиливают прыжок на 15 сек.' },
     { id: 'shield', name: 'Панцирь-щит', price: 18, effect: 'Блокирует одно столкновение.' },
   ];
+  const LEADERBOARD_LIMIT = 10;
+  const LEADERBOARD_API_URL = '/api/leaderboard';
+  const PLAYER_NAME_STORAGE_KEY = 'dino-pace-run-player-name';
 
   // Asset manifest. Later replace placeholders by switching USE_GENERATED_PLACEHOLDERS to false
   // and placing real pixel-art files into assets/. The rest of the game uses only these keys.
@@ -149,6 +152,11 @@
       this.isGameOver = false;
       this.isShopping = false;
       this.isFinished = false;
+      this.isMenuOpen = true;
+      this.isEditingName = false;
+      this.isLeaderboardOpen = false;
+      this.pendingPlayerName = '';
+      this.playerName = readPlayerName();
       this.bestDistance = Math.min(RACE_DISTANCE_KM, readBestDistance());
 
       this.createWorld();
@@ -157,7 +165,10 @@
       this.createGroups();
       this.createHud();
       this.createControls();
+      this.createMainMenu();
       this.bindInput();
+      this.mobileControls.setVisible(false);
+      this.updateHud();
     }
 
     createWorld() {
@@ -501,7 +512,7 @@
 
     createResultPanel() {
       this.resultPanel = this.add.container(VIRTUAL_WIDTH / 2, VIRTUAL_HEIGHT / 2).setDepth(75).setVisible(false);
-      const panelBg = this.add.rectangle(0, 0, 338, 150, 0x101330, 0.94).setStrokeStyle(2, 0xfff6d8, 0.45);
+      const panelBg = this.add.rectangle(0, 0, 338, 168, 0x101330, 0.94).setStrokeStyle(2, 0xfff6d8, 0.45);
       this.resultTitle = this.add
         .text(0, -52, 'ТЕМП ПОТЕРЯН!', {
           fontFamily: 'Consolas, Monaco, monospace',
@@ -520,25 +531,190 @@
         })
         .setOrigin(0.5);
       const panelHint = this.add
-        .text(0, 45, 'Тап / Space / R — заново', {
+        .text(0, 38, 'Space / R — меню', {
           fontFamily: 'Consolas, Monaco, monospace',
           fontSize: '12px',
           color: '#9fb7ff',
         })
         .setOrigin(0.5);
-      this.resultPanel.add([panelBg, this.resultTitle, this.resultScore, panelHint]);
+      this.resultMenuButton = createMenuButton(this, 0, 66, 94, 30, 'МЕНЮ', 0x9fb7ff);
+      this.resultMenuButton.bg.on('pointerdown', () => this.returnToMenu());
+      this.resultPanel.add([panelBg, this.resultTitle, this.resultScore, panelHint, this.resultMenuButton.bg, this.resultMenuButton.label]);
+    }
+
+    createMainMenu() {
+      this.menuPanel = this.add.container(VIRTUAL_WIDTH / 2, VIRTUAL_HEIGHT / 2).setDepth(90);
+      const bg = this.add.rectangle(0, 0, 382, 232, 0x101330, 0.96).setStrokeStyle(2, 0xfff6d8, 0.46);
+      const title = this.add
+        .text(0, -92, 'DINO PACE RUN', {
+          fontFamily: 'Consolas, Monaco, monospace',
+          fontSize: '24px',
+          color: '#fff6d8',
+          stroke: '#070a1e',
+          strokeThickness: 4,
+        })
+        .setOrigin(0.5);
+      this.menuNameText = this.add
+        .text(0, -64, '', {
+          fontFamily: 'Consolas, Monaco, monospace',
+          fontSize: '12px',
+          color: '#80ff8f',
+          stroke: '#070a1e',
+          strokeThickness: 3,
+        })
+        .setOrigin(0.5);
+
+      this.startButton = createMenuButton(this, -122, -28, 94, 34, 'СТАРТ', 0x80ff8f);
+      this.nameButton = createMenuButton(this, -12, -28, 88, 34, 'ИМЯ', 0xffb84d);
+      this.leaderboardButton = createMenuButton(this, 112, -28, 132, 34, 'ЛИДЕРБОРД', 0x9fb7ff);
+
+      this.startButton.bg.on('pointerdown', () => this.startRun());
+      this.nameButton.bg.on('pointerdown', () => this.changePlayerName());
+      this.leaderboardButton.bg.on('pointerdown', () => this.loadMenuLeaderboard());
+
+      this.menuPanel.add([
+        bg,
+        title,
+        this.menuNameText,
+        this.startButton.bg,
+        this.startButton.label,
+        this.nameButton.bg,
+        this.nameButton.label,
+        this.leaderboardButton.bg,
+        this.leaderboardButton.label,
+      ]);
+      this.updateMenuName();
+      this.createLeaderboardPanel();
+    }
+
+    createLeaderboardPanel() {
+      this.leaderboardPanel = this.add.container(VIRTUAL_WIDTH / 2, VIRTUAL_HEIGHT / 2).setDepth(100).setVisible(false);
+      const bg = this.add
+        .rectangle(0, 0, 334, 214, 0x101330, 0.98)
+        .setStrokeStyle(2, 0x9fb7ff, 0.7)
+        .setInteractive();
+      const title = this.add
+        .text(0, -88, 'ЛИДЕРБОРД', {
+          fontFamily: 'Consolas, Monaco, monospace',
+          fontSize: '20px',
+          color: '#fff6d8',
+          stroke: '#070a1e',
+          strokeThickness: 4,
+        })
+        .setOrigin(0.5);
+      this.leaderboardText = this.add
+        .text(0, -8, 'загружаю...', {
+          fontFamily: 'Consolas, Monaco, monospace',
+          fontSize: '10px',
+          color: '#ffdf8a',
+          align: 'center',
+          lineSpacing: 1,
+        })
+        .setOrigin(0.5);
+      this.leaderboardCloseButton = createMenuButton(this, 0, 82, 94, 30, 'НАЗАД', 0x9fb7ff);
+      this.leaderboardCloseButton.bg.on('pointerdown', () => this.closeLeaderboard());
+      this.leaderboardPanel.add([
+        bg,
+        title,
+        this.leaderboardText,
+        this.leaderboardCloseButton.bg,
+        this.leaderboardCloseButton.label,
+      ]);
+    }
+
+    startRun() {
+      this.isMenuOpen = false;
+      this.menuPanel.setVisible(false);
+      this.mobileControls.setVisible(true);
+    }
+
+    changePlayerName() {
+      this.isEditingName = true;
+      this.pendingPlayerName = '';
+      this.updateMenuName();
+    }
+
+    updateMenuName() {
+      const shownName = this.isEditingName ? `${this.pendingPlayerName || '_'}_` : this.playerName;
+      this.menuNameText.setText(`ИГРОК: ${shownName}`);
+    }
+
+    commitPlayerName() {
+      this.playerName = normalizePlayerName(this.pendingPlayerName || this.playerName);
+      writePlayerName(this.playerName);
+      this.isEditingName = false;
+      this.pendingPlayerName = '';
+      this.updateMenuName();
+    }
+
+    cancelPlayerNameEdit() {
+      this.isEditingName = false;
+      this.pendingPlayerName = '';
+      this.updateMenuName();
+    }
+
+    handleNameInput(event) {
+      if (event.key === 'Enter') {
+        this.commitPlayerName();
+        return;
+      }
+      if (event.key === 'Escape') {
+        this.cancelPlayerNameEdit();
+        return;
+      }
+      if (event.key === 'Backspace') {
+        this.pendingPlayerName = this.pendingPlayerName.slice(0, -1);
+        this.updateMenuName();
+        return;
+      }
+      if (event.key.length === 1 && this.pendingPlayerName.length < 16 && /[\p{L}\p{N}_ -]/u.test(event.key)) {
+        this.pendingPlayerName += event.key;
+        this.updateMenuName();
+      }
+    }
+
+    returnToMenu() {
+      this.scene.restart();
+    }
+
+    loadMenuLeaderboard() {
+      this.isLeaderboardOpen = true;
+      this.leaderboardPanel.setVisible(true);
+      this.leaderboardText.setText('загружаю...');
+      readLeaderboard(this.playerName)
+        .then(({ leaderboard, playerRank }) => {
+          this.leaderboardText.setText(formatLeaderboard(leaderboard, this.playerName, playerRank));
+        })
+        .catch(() => {
+          const leaderboard = readLocalLeaderboard();
+          this.leaderboardText.setText(`${formatLeaderboard(leaderboard, this.playerName, null)}\nOFFLINE`);
+        });
+    }
+
+    closeLeaderboard() {
+      this.isLeaderboardOpen = false;
+      this.leaderboardPanel.setVisible(false);
     }
 
     createControls() {
       this.mobileControls = this.add.container(0, 0).setDepth(50);
       this.slideButton = createTouchButton(this, 74, VIRTUAL_HEIGHT - 39, 110, 50, 'SLIDE', 0xffb84d);
       this.jumpButton = createTouchButton(this, VIRTUAL_WIDTH - 74, VIRTUAL_HEIGHT - 39, 110, 50, 'JUMP', 0x80ff8f);
-      this.mobileControls.add([this.slideButton.bg, this.slideButton.label, this.jumpButton.bg, this.jumpButton.label]);
+      this.gameMenuButton = createMenuButton(this, VIRTUAL_WIDTH - 42, 38, 68, 24, 'МЕНЮ', 0x9fb7ff);
+      this.mobileControls.add([
+        this.slideButton.bg,
+        this.slideButton.label,
+        this.jumpButton.bg,
+        this.jumpButton.label,
+        this.gameMenuButton.bg,
+        this.gameMenuButton.label,
+      ]);
 
       this.jumpButton.bg.on('pointerdown', () => this.jump());
       this.slideButton.bg.on('pointerdown', () => this.startSlide());
       this.slideButton.bg.on('pointerup', () => this.requestSlideRelease());
       this.slideButton.bg.on('pointerout', () => this.requestSlideRelease());
+      this.gameMenuButton.bg.on('pointerdown', () => this.returnToMenu());
     }
 
     bindInput() {
@@ -547,26 +723,42 @@
         w: Phaser.Input.Keyboard.KeyCodes.W,
         s: Phaser.Input.Keyboard.KeyCodes.S,
         r: Phaser.Input.Keyboard.KeyCodes.R,
+        l: Phaser.Input.Keyboard.KeyCodes.L,
+        n: Phaser.Input.Keyboard.KeyCodes.N,
         one: Phaser.Input.Keyboard.KeyCodes.ONE,
         two: Phaser.Input.Keyboard.KeyCodes.TWO,
         three: Phaser.Input.Keyboard.KeyCodes.THREE,
         enter: Phaser.Input.Keyboard.KeyCodes.ENTER,
       });
 
-      this.input.keyboard.on('keydown', () => {
+      this.input.keyboard.on('keydown', (event) => {
+        if (this.isEditingName) {
+          this.handleNameInput(event);
+          return;
+        }
+        if (this.isMenuOpen) return;
         this.confirmMergeIntro();
       });
 
       this.input.on('pointerdown', (pointer) => {
+        if (this.isMenuOpen) return;
+        if (isPointerOnGameMenu(pointer)) {
+          this.returnToMenu();
+          return;
+        }
         if (this.confirmMergeIntro()) return;
         if ((this.isGameOver || this.isFinished) && !isPointerOnControls(pointer)) {
-          this.scene.restart();
+          this.returnToMenu();
         }
       });
     }
 
     update(time, delta) {
       this.readKeyboard();
+
+      if (this.isMenuOpen) {
+        return;
+      }
 
       if (this.isGameOver || this.isShopping || this.isFinished) {
         return;
@@ -655,6 +847,25 @@
     }
 
     readKeyboard() {
+      if (this.isMenuOpen) {
+        if (this.isLeaderboardOpen) {
+          return;
+        }
+        if (this.isEditingName) {
+          return;
+        }
+        if (Phaser.Input.Keyboard.JustDown(this.keys.enter) || Phaser.Input.Keyboard.JustDown(this.cursors.space)) {
+          this.startRun();
+        }
+        if (Phaser.Input.Keyboard.JustDown(this.keys.n)) {
+          this.changePlayerName();
+        }
+        if (Phaser.Input.Keyboard.JustDown(this.keys.l)) {
+          this.loadMenuLeaderboard();
+        }
+        return;
+      }
+
       if (this.mergeConflict?.waitingForStart) {
         return;
       }
@@ -677,7 +888,7 @@
           Phaser.Input.Keyboard.JustDown(this.cursors.space) ||
           Phaser.Input.Keyboard.JustDown(this.cursors.up);
         if (restartPressed) {
-          this.scene.restart();
+          this.returnToMenu();
         }
         return;
       }
@@ -700,7 +911,7 @@
       if (this.isShopping || this.mergeConflict?.waitingForStart) return;
       if (this.mergeConflict?.active && this.time.now < this.mergeControlLockUntil) return;
       if (this.isGameOver || this.isFinished) {
-        this.scene.restart();
+        this.returnToMenu();
         return;
       }
       if (this.isSliding) {
@@ -1128,12 +1339,20 @@
 
       const finalDistance = Math.floor(this.distance * 10) / 10;
       this.saveBestDistance(finalDistance);
+      this.saveLeaderboardDistance(finalDistance);
       this.resultTitle.setText('MERGE CONFLICT LOST');
       this.resultTitle.setColor('#ff657f');
       this.resultScore.setText(
         `BOT СОБРАЛ БОЛЬШЕ git-ВАЛЮТЫ\nPLAYER ${this.gitScore.player}   BOT ${this.gitScore.bot}\nДИСТ ${formatKm(finalDistance)} / ${RACE_DISTANCE_KM} КМ\nРЕКОРД ${formatKm(this.bestDistance)} КМ`,
       );
       this.resultPanel.setVisible(true);
+    }
+
+    saveLeaderboardDistance(distance) {
+      writeLeaderboardDistance(distance, this.playerName)
+        .catch(() => {
+          writeLocalLeaderboardDistance(distance, this.playerName);
+        });
     }
 
     spawnObstacle() {
@@ -1309,6 +1528,7 @@
 
       const finalDistance = Math.floor(this.distance * 10) / 10;
       this.saveBestDistance(finalDistance);
+      this.saveLeaderboardDistance(finalDistance);
       this.resultTitle.setText('ТЕМП ПОТЕРЯН!');
       this.resultTitle.setColor('#ff657f');
       this.resultScore.setText(
@@ -1322,6 +1542,7 @@
       this.isFinished = true;
       this.distance = RACE_DISTANCE_KM;
       this.saveBestDistance(RACE_DISTANCE_KM);
+      this.saveLeaderboardDistance(RACE_DISTANCE_KM);
       this.physics.pause();
       if (this.isSliding) this.endSlide();
       this.player.setTexture('dino-run-0');
@@ -1523,8 +1744,33 @@
     return { bg, label: text };
   }
 
+  function createMenuButton(scene, x, y, width, height, label, color) {
+    const bg = scene.add
+      .rectangle(x, y, width, height, 0x070a1e, 0.74)
+      .setStrokeStyle(2, color, 0.82)
+      .setInteractive({ useHandCursor: true });
+    const text = scene.add
+      .text(x, y, label, {
+        fontFamily: 'Consolas, Monaco, monospace',
+        fontSize: '10px',
+        color: '#fff6d8',
+        stroke: '#070a1e',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5);
+
+    bg.on('pointerdown', () => bg.setFillStyle(color, 0.24));
+    bg.on('pointerup', () => bg.setFillStyle(0x070a1e, 0.74));
+    bg.on('pointerout', () => bg.setFillStyle(0x070a1e, 0.74));
+    return { bg, label: text };
+  }
+
   function isPointerOnControls(pointer) {
     return pointer.y > VIRTUAL_HEIGHT - 72;
+  }
+
+  function isPointerOnGameMenu(pointer) {
+    return pointer.x > VIRTUAL_WIDTH - 86 && pointer.y < 58;
   }
 
   function createPlaceholderTextures(scene) {
@@ -1958,5 +2204,110 @@
     } catch (error) {
       // Local storage can be unavailable in private mode; score still works for the session.
     }
+  }
+
+  function readPlayerName() {
+    try {
+      return normalizePlayerName(window.localStorage.getItem(PLAYER_NAME_STORAGE_KEY) || 'PLAYER');
+    } catch (error) {
+      return 'PLAYER';
+    }
+  }
+
+  function writePlayerName(name) {
+    try {
+      window.localStorage.setItem(PLAYER_NAME_STORAGE_KEY, normalizePlayerName(name));
+    } catch (error) {
+      // Local storage can be unavailable in private mode; the in-memory name still works.
+    }
+  }
+
+  function normalizePlayerName(name) {
+    const normalized = String(name || '').trim().replace(/\s+/g, ' ').slice(0, 16);
+    return normalized || 'PLAYER';
+  }
+
+  async function readLeaderboard(playerName) {
+    const query = new URLSearchParams({ player: normalizePlayerName(playerName) });
+    const response = await window.fetch(`${LEADERBOARD_API_URL}?${query.toString()}`);
+    if (!response.ok) {
+      throw new Error(`Leaderboard API failed: ${response.status}`);
+    }
+    const payload = await response.json();
+    return {
+      leaderboard: normalizeLeaderboard(payload.leaderboard),
+      playerRank: normalizeRank(payload.playerRank),
+    };
+  }
+
+  async function writeLeaderboardDistance(distance, playerName) {
+    const response = await window.fetch(LEADERBOARD_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ km: distance, playerName: normalizePlayerName(playerName) }),
+    });
+    if (!response.ok) {
+      throw new Error(`Leaderboard API failed: ${response.status}`);
+    }
+    return response.json();
+  }
+
+  function readLocalLeaderboard() {
+    try {
+      const records = JSON.parse(window.localStorage.getItem('dino-pace-run-leaderboard') || '[]');
+      return normalizeLeaderboard(records);
+    } catch (error) {
+      return [];
+    }
+  }
+
+  function writeLocalLeaderboardDistance(distance) {
+    const nextRecord = {
+      km: Math.min(RACE_DISTANCE_KM, Math.max(0, Number(distance) || 0)),
+      playerName: readPlayerName(),
+      finishedAt: Date.now(),
+    };
+    const leaderboard = [...readLocalLeaderboard(), nextRecord].sort(sortLeaderboard).slice(0, LEADERBOARD_LIMIT);
+    try {
+      window.localStorage.setItem('dino-pace-run-leaderboard', JSON.stringify(leaderboard));
+    } catch (error) {
+      // Local storage can be unavailable in private mode; leaderboard still works for the current result.
+    }
+    return leaderboard;
+  }
+
+  function normalizeLeaderboard(records) {
+    if (!Array.isArray(records)) return [];
+    return records
+      .map((record) => ({
+        rank: Number(record.rank) || 0,
+        playerName: normalizePlayerName(record.playerName || record.player_name || 'PLAYER'),
+        km: Math.min(RACE_DISTANCE_KM, Math.max(0, Number(record.km) || 0)),
+        finishedAt: Number(record.finishedAt) || 0,
+      }))
+      .filter((record) => record.km > 0)
+      .sort(sortLeaderboard)
+      .slice(0, LEADERBOARD_LIMIT);
+  }
+
+  function normalizeRank(rank) {
+    const value = Number(rank);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+
+  function sortLeaderboard(a, b) {
+    return b.km - a.km || b.finishedAt - a.finishedAt;
+  }
+
+  function formatLeaderboard(leaderboard, playerName, playerRank) {
+    if (!leaderboard.length) return 'ЛИДЕРБОРД: пока пусто';
+    const currentName = normalizePlayerName(playerName);
+    const rows = leaderboard.map((record, index) => {
+      const rank = record.rank || index + 1;
+      const marker = record.playerName === currentName ? ' <' : '';
+      return `${rank}. ${record.playerName}  ${formatKm(record.km)} КМ${marker}`;
+    });
+    const rankLine = playerRank ? `ТВОЕ МЕСТО: ${playerRank}` : 'ТВОЕ МЕСТО: нет результата';
+    return `ЛИДЕРБОРД ТОП-10\n${rows.join('\n')}\n${rankLine}`;
   }
 })();
