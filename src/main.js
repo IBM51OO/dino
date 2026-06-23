@@ -12,7 +12,9 @@
   const SHOP_SPAWN_LOOKAHEAD_KM = 0.24;
   const COINS_PER_KM = 3;
   const H2O_COIN_REWARD = 5;
-  const DINO_BIB_NUMBER = '42';
+  const DINO_BIB_NUMBER = '1';
+  const PLAYER_RUN_HITBOX = { width: 28, height: 34, offsetX: 16, offsetY: 14 };
+  const PLAYER_SLIDE_HITBOX = { width: 42, height: 14, offsetX: 8, offsetY: 18 };
   const BACKGROUND_RUNNER_BIBS = ['07', '13', '21', '26', '38', '42', '57', '88'];
   const MERGE_EVENT_MIN_BEFORE_SHOP_KM = 0.85;
   const MERGE_EVENT_MAX_BEFORE_SHOP_KM = 1.55;
@@ -45,8 +47,8 @@
     { id: 'shield', name: 'Панцирь-щит', price: 18, effect: 'Блокирует одно столкновение.' },
   ];
 
-  // Asset manifest. Later replace placeholders by switching USE_GENERATED_PLACEHOLDERS to false
-  // and placing real pixel-art files into assets/. The rest of the game uses only these keys.
+  // Real dragon character sprites are loaded from assets/sprites/.
+  // The rest of the prototype still uses generated placeholder textures until art files exist.
   const USE_GENERATED_PLACEHOLDERS = true;
   const ASSETS = {
     character: {
@@ -54,6 +56,7 @@
         { key: 'dino-run-0', path: 'assets/sprites/dino-run-0.png' },
         { key: 'dino-run-1', path: 'assets/sprites/dino-run-1.png' },
         { key: 'dino-run-2', path: 'assets/sprites/dino-run-2.png' },
+        { key: 'dino-run-3', path: 'assets/sprites/dino-run-3.png' },
       ],
       jump: { key: 'dino-jump', path: 'assets/sprites/dino-jump.png' },
       slide: { key: 'dino-slide', path: 'assets/sprites/dino-slide.png' },
@@ -92,10 +95,11 @@
     }
 
     preload() {
+      ASSETS.character.run.forEach((asset) => this.load.image(asset.key, asset.path));
+      this.load.image(ASSETS.character.jump.key, ASSETS.character.jump.path);
+      this.load.image(ASSETS.character.slide.key, ASSETS.character.slide.path);
+
       if (!USE_GENERATED_PLACEHOLDERS) {
-        ASSETS.character.run.forEach((asset) => this.load.image(asset.key, asset.path));
-        this.load.image(ASSETS.character.jump.key, ASSETS.character.jump.path);
-        this.load.image(ASSETS.character.slide.key, ASSETS.character.slide.path);
         ASSETS.obstacles.forEach((asset) => this.load.image(asset.key, asset.path));
         ASSETS.collectibles.forEach((asset) => this.load.image(asset.key, asset.path));
         this.load.image(ASSETS.event.gitToken.key, ASSETS.event.gitToken.path);
@@ -715,7 +719,7 @@
         return;
       }
 
-      const jumpPower = this.buffs.shoes > 0 ? { ground: -480, air: -410 } : { ground: -410, air: -350 };
+      const jumpPower = this.buffs.shoes > 0 ? { ground: -440, air: -360 } : { ground: -380, air: -320 };
       this.player.setVelocityY(onGround ? jumpPower.ground : jumpPower.air);
       this.jumpsLeft -= 1;
       this.player.setTexture('dino-jump');
@@ -736,8 +740,8 @@
 
       this.isSliding = true;
       this.player.setTexture('dino-slide');
-      this.player.body.setSize(31, 13);
-      this.player.body.setOffset(5, 8);
+      this.player.body.setSize(PLAYER_SLIDE_HITBOX.width, PLAYER_SLIDE_HITBOX.height);
+      this.player.body.setOffset(PLAYER_SLIDE_HITBOX.offsetX, PLAYER_SLIDE_HITBOX.offsetY);
       this.soundBeep(220, 0.025);
 
       if (this.slideTimer) {
@@ -763,8 +767,8 @@
 
     setPlayerRunHitbox() {
       if (!this.player || !this.player.body) return;
-      this.player.body.setSize(24, 27);
-      this.player.body.setOffset(6, 4);
+      this.player.body.setSize(PLAYER_RUN_HITBOX.width, PLAYER_RUN_HITBOX.height);
+      this.player.body.setOffset(PLAYER_RUN_HITBOX.offsetX, PLAYER_RUN_HITBOX.offsetY);
     }
 
     updatePlayerAnimation(time) {
@@ -964,7 +968,8 @@
       this.botDino.setDepth(8);
       this.botDino.setTint(0xff8fb0);
       this.botDino.body.allowGravity = false;
-      this.botDino.body.setSize(24, 27).setOffset(6, 4);
+      this.botDino.body.setSize(PLAYER_RUN_HITBOX.width, PLAYER_RUN_HITBOX.height);
+      this.botDino.body.setOffset(PLAYER_RUN_HITBOX.offsetX, PLAYER_RUN_HITBOX.offsetY);
       this.botGitOverlap = this.physics.add.overlap(this.botDino, this.botGitCoins, (bot, coin) => this.collectGitCoin(coin, 'bot'), null, this);
     }
 
@@ -1590,11 +1595,12 @@
       }
     });
 
-    makeTexture(scene, 'dino-run-0', 36, 32, (ctx) => drawDino(ctx, 'run0'));
-    makeTexture(scene, 'dino-run-1', 36, 32, (ctx) => drawDino(ctx, 'run1'));
-    makeTexture(scene, 'dino-run-2', 36, 32, (ctx) => drawDino(ctx, 'run2'));
-    makeTexture(scene, 'dino-jump', 36, 32, (ctx) => drawDino(ctx, 'jump'));
-    makeTexture(scene, 'dino-slide', 40, 22, (ctx) => drawDinoSlide(ctx));
+    makeTexture(scene, 'dino-run-0', 48, 48, (ctx) => drawDino(ctx, 'run0'));
+    makeTexture(scene, 'dino-run-1', 48, 48, (ctx) => drawDino(ctx, 'run1'));
+    makeTexture(scene, 'dino-run-2', 48, 48, (ctx) => drawDino(ctx, 'run2'));
+    makeTexture(scene, 'dino-run-3', 48, 48, (ctx) => drawDino(ctx, 'run3'));
+    makeTexture(scene, 'dino-jump', 48, 48, (ctx) => drawDino(ctx, 'jump'));
+    makeTexture(scene, 'dino-slide', 56, 34, (ctx) => drawDinoSlide(ctx));
     makeTexture(scene, 'cactus', 22, 32, (ctx) => drawCactus(ctx));
     makeTexture(scene, 'hurdle', 28, 24, (ctx) => drawHurdle(ctx));
     makeTexture(scene, 'cone', 22, 30, (ctx) => drawCone(ctx));
@@ -1700,100 +1706,257 @@
     ctx.fillRect(12, 6, 1, 1);
   }
 
+  function drawDragonBib(ctx, x, y, width, height) {
+    ctx.fillStyle = '#102c35';
+    ctx.fillRect(x - 1, y - 1, width + 2, height + 2);
+    ctx.fillStyle = '#7d27e8';
+    ctx.fillRect(x, y, width, height);
+    ctx.fillStyle = '#e078ff';
+    ctx.fillRect(x + 1, y + 1, width - 2, 1);
+    ctx.fillStyle = '#4a1fb2';
+    ctx.fillRect(x + 1, y + height - 2, width - 2, 1);
+    ctx.fillStyle = '#ffe66d';
+    ctx.fillRect(x + 2, y + 2, 1, 1);
+    ctx.fillRect(x + width - 3, y + 2, 1, 1);
+    ctx.fillRect(x + 2, y + height - 3, 1, 1);
+    ctx.fillRect(x + width - 3, y + height - 3, 1, 1);
+    ctx.fillStyle = '#f7fbff';
+    ctx.fillRect(x + Math.floor(width / 2), y + 2, 1, 5);
+    ctx.fillRect(x + Math.floor(width / 2) - 1, y + 3, 1, 1);
+    ctx.fillRect(x + Math.floor(width / 2) - 1, y + 7, 4, 1);
+  }
+
+  function drawDragonEye(ctx, x, y) {
+    ctx.fillStyle = '#102c35';
+    ctx.fillRect(x, y, 6, 8);
+    ctx.fillStyle = '#f7fbff';
+    ctx.fillRect(x + 1, y, 4, 7);
+    ctx.fillStyle = '#4d35db';
+    ctx.fillRect(x + 3, y + 2, 2, 5);
+    ctx.fillStyle = '#1f246d';
+    ctx.fillRect(x + 4, y + 5, 1, 2);
+    ctx.fillStyle = '#f7fbff';
+    ctx.fillRect(x + 2, y + 1, 2, 2);
+  }
+
   function drawDino(ctx, pose) {
-    ctx.clearRect(0, 0, 36, 32);
-    const green = '#80ff8f';
-    const greenMid = '#47c86b';
-    const greenDark = '#21834f';
+    ctx.clearRect(0, 0, 48, 48);
+    const green = '#20df6d';
+    const greenLight = '#77ff92';
+    const greenMid = '#20b865';
+    const greenDark = '#117a4b';
     const outline = '#102c35';
-    const belly = '#fff0a6';
-    const shoe = '#ffb84d';
+    const belly = '#ffe66d';
+    const bellyDark = '#d9a83a';
+    const purple = '#9c2cff';
+    const purpleLight = '#e078ff';
+    const purpleDark = '#4a1fb2';
+    const shoe = '#7d27e8';
+    const sole = '#fff6d8';
+    const jump = pose === 'jump';
+    const bounce = pose === 'run1' || pose === 'run3' ? -1 : jump ? -2 : 0;
 
     ctx.fillStyle = outline;
-    ctx.fillRect(6, 12, 20, 15);
-    ctx.fillRect(2, 16, 10, 7);
-    ctx.fillRect(22, 4, 11, 12);
-    ctx.fillRect(28, 10, 7, 7);
-
-    ctx.fillStyle = greenDark;
-    ctx.fillRect(3, 17, 8, 4);
-    ctx.fillRect(8, 11, 17, 14);
-    ctx.fillRect(23, 5, 9, 10);
-    ctx.fillRect(28, 11, 5, 4);
-
-    ctx.fillStyle = green;
-    ctx.fillRect(10, 10, 13, 13);
-    ctx.fillRect(22, 6, 8, 8);
-    ctx.fillRect(27, 11, 5, 3);
-
-    ctx.fillStyle = belly;
-    ctx.fillRect(17, 15, 6, 7);
-    ctx.fillStyle = '#111943';
-    ctx.fillRect(26, 7, 2, 2);
-    ctx.fillStyle = '#ff8fb0';
-    ctx.fillRect(27, 12, 2, 1);
+    ctx.fillRect(4, 34 + bounce, 12, 6);
+    ctx.fillRect(7, 31 + bounce, 8, 4);
     ctx.fillStyle = greenMid;
-    ctx.fillRect(20, 17, 3, 5);
-    drawBib(ctx, 15, 15, 9, 7, DINO_BIB_NUMBER);
+    ctx.fillRect(5, 35 + bounce, 10, 4);
+    ctx.fillStyle = greenLight;
+    ctx.fillRect(7, 35 + bounce, 6, 1);
+    ctx.fillStyle = outline;
+    ctx.fillRect(10, 29 + bounce, 4, 4);
+    ctx.fillStyle = purple;
+    ctx.fillRect(11, 29 + bounce, 2, 3);
 
-    if (pose === 'jump') {
-      ctx.fillStyle = greenDark;
-      ctx.fillRect(10, 23, 4, 5);
-      ctx.fillRect(19, 23, 4, 5);
-      ctx.fillStyle = shoe;
-      ctx.fillRect(8, 27, 8, 3);
-      ctx.fillRect(18, 27, 8, 3);
-      ctx.fillStyle = '#fff6d8';
-      ctx.fillRect(4, 10, 3, 3);
-      return;
-    }
+    ctx.fillStyle = outline;
+    ctx.fillRect(8, 24 + bounce, 8, 14);
+    ctx.fillRect(5, 31 + bounce, 8, 6);
+    ctx.fillStyle = purpleDark;
+    ctx.fillRect(9, 25 + bounce, 6, 12);
+    ctx.fillStyle = purple;
+    ctx.fillRect(10, 26 + bounce, 5, 9);
+    ctx.fillStyle = purpleLight;
+    ctx.fillRect(6, 32 + bounce, 6, 3);
 
-    const raised = pose === 'run1';
-    const swapped = pose === 'run2';
+    const firstLegForward = pose === 'run1' || pose === 'run3';
+    const secondLegForward = pose === 'run2';
+    ctx.fillStyle = outline;
+    ctx.fillRect(firstLegForward ? 15 : 17, 37 + bounce, 6, firstLegForward ? 6 : 8);
+    ctx.fillRect(secondLegForward ? 30 : 28, 37 + bounce, 6, secondLegForward ? 6 : 8);
     ctx.fillStyle = greenDark;
-    if (raised) {
-      ctx.fillRect(10, 23, 4, 4);
-      ctx.fillRect(20, 22, 4, 7);
-      ctx.fillStyle = shoe;
-      ctx.fillRect(7, 26, 8, 3);
-      ctx.fillRect(20, 29, 8, 3);
-    } else if (swapped) {
-      ctx.fillRect(11, 22, 4, 7);
-      ctx.fillRect(20, 23, 4, 4);
-      ctx.fillStyle = shoe;
-      ctx.fillRect(9, 29, 8, 3);
-      ctx.fillRect(20, 26, 8, 3);
-    } else {
-      ctx.fillRect(11, 23, 4, 6);
-      ctx.fillRect(20, 23, 4, 6);
-      ctx.fillStyle = shoe;
-      ctx.fillRect(9, 29, 8, 3);
-      ctx.fillRect(19, 29, 8, 3);
-    }
+    ctx.fillRect(firstLegForward ? 16 : 18, 38 + bounce, 4, firstLegForward ? 5 : 7);
+    ctx.fillRect(secondLegForward ? 31 : 29, 38 + bounce, 4, secondLegForward ? 5 : 7);
+    ctx.fillStyle = outline;
+    ctx.fillRect(firstLegForward ? 12 : 16, firstLegForward ? 42 + bounce : 44 + bounce, 12, 5);
+    ctx.fillRect(secondLegForward ? 31 : 28, secondLegForward ? 42 + bounce : 44 + bounce, 12, 5);
+    ctx.fillStyle = shoe;
+    ctx.fillRect(firstLegForward ? 13 : 17, firstLegForward ? 43 + bounce : 45 + bounce, 11, 3);
+    ctx.fillRect(secondLegForward ? 32 : 29, secondLegForward ? 43 + bounce : 45 + bounce, 11, 3);
+    ctx.fillStyle = purpleLight;
+    ctx.fillRect(firstLegForward ? 15 : 19, firstLegForward ? 43 + bounce : 45 + bounce, 7, 1);
+    ctx.fillRect(secondLegForward ? 34 : 31, secondLegForward ? 43 + bounce : 45 + bounce, 7, 1);
+    ctx.fillStyle = sole;
+    ctx.fillRect(firstLegForward ? 13 : 17, firstLegForward ? 46 + bounce : 47 + bounce, 11, 1);
+    ctx.fillRect(secondLegForward ? 32 : 29, secondLegForward ? 46 + bounce : 47 + bounce, 11, 1);
+
+    ctx.fillStyle = outline;
+    ctx.fillRect(15, 22 + bounce, 22, 22);
+    ctx.fillRect(13, 27 + bounce, 25, 11);
+    ctx.fillRect(18, 19 + bounce, 13, 7);
+    ctx.fillStyle = greenDark;
+    ctx.fillRect(16, 23 + bounce, 20, 20);
+    ctx.fillStyle = greenMid;
+    ctx.fillRect(14, 28 + bounce, 22, 9);
+    ctx.fillStyle = greenLight;
+    ctx.fillRect(19, 20 + bounce, 11, 5);
+    ctx.fillStyle = bellyDark;
+    ctx.fillRect(23, 25 + bounce, 9, 17);
+    ctx.fillStyle = belly;
+    ctx.fillRect(22, 25 + bounce, 9, 16);
+    ctx.fillStyle = bellyDark;
+    ctx.fillRect(23, 30 + bounce, 8, 1);
+    ctx.fillRect(23, 36 + bounce, 8, 1);
+    drawDragonBib(ctx, 23, 31 + bounce, 10, 10);
+
+    ctx.fillStyle = outline;
+    ctx.fillRect(34, jump ? 22 + bounce : 26 + bounce, 5, 5);
+    ctx.fillRect(38, jump ? 21 + bounce : 24 + bounce, 5, 5);
+    ctx.fillStyle = greenMid;
+    ctx.fillRect(35, jump ? 23 + bounce : 27 + bounce, 4, 3);
+    ctx.fillStyle = green;
+    ctx.fillRect(38, jump ? 22 + bounce : 25 + bounce, 5, 3);
+    ctx.fillStyle = greenLight;
+    ctx.fillRect(41, jump ? 23 + bounce : 26 + bounce, 2, 2);
+
+    ctx.fillStyle = outline;
+    ctx.fillRect(15, 11 + bounce, 8, 4);
+    ctx.fillRect(11, 16 + bounce, 10, 5);
+    ctx.fillStyle = purpleLight;
+    ctx.fillRect(16, 12 + bounce, 7, 2);
+    ctx.fillStyle = purple;
+    ctx.fillRect(12, 17 + bounce, 8, 3);
+
+    ctx.fillStyle = outline;
+    ctx.fillRect(23, 8 + bounce, 19, 17);
+    ctx.fillRect(20, 13 + bounce, 8, 9);
+    ctx.fillRect(35, 14 + bounce, 10, 11);
+    ctx.fillRect(39, 18 + bounce, 7, 7);
+    ctx.fillRect(24, 5 + bounce, 7, 5);
+    ctx.fillStyle = greenMid;
+    ctx.fillRect(24, 9 + bounce, 17, 15);
+    ctx.fillRect(21, 14 + bounce, 6, 7);
+    ctx.fillRect(35, 15 + bounce, 9, 9);
+    ctx.fillRect(39, 19 + bounce, 5, 5);
+    ctx.fillStyle = greenLight;
+    ctx.fillRect(25, 10 + bounce, 13, 5);
+    ctx.fillRect(36, 16 + bounce, 7, 4);
+    ctx.fillRect(26, 6 + bounce, 3, 3);
+
+    ctx.fillStyle = outline;
+    ctx.fillRect(22, 10 + bounce, 20, 5);
+    ctx.fillStyle = purple;
+    ctx.fillRect(23, 11 + bounce, 18, 3);
+    ctx.fillStyle = purpleLight;
+    ctx.fillRect(24, 11 + bounce, 12, 1);
+    ctx.fillRect(39, 12 + bounce, 2, 2);
+
+    drawDragonEye(ctx, 29, 12 + bounce);
+    ctx.fillStyle = outline;
+    ctx.fillRect(42, 19 + bounce, 2, 2);
+    ctx.fillRect(37, 24 + bounce, 6, 1);
+    ctx.fillStyle = '#58e887';
+    ctx.fillRect(21, 21 + bounce, 3, 2);
   }
 
   function drawDinoSlide(ctx) {
-    ctx.clearRect(0, 0, 40, 22);
-    ctx.fillStyle = '#102c35';
-    ctx.fillRect(4, 9, 25, 9);
-    ctx.fillRect(25, 5, 10, 9);
-    ctx.fillRect(0, 12, 8, 5);
-    ctx.fillStyle = '#47c86b';
-    ctx.fillRect(5, 10, 23, 7);
-    ctx.fillRect(25, 6, 9, 7);
-    ctx.fillRect(1, 13, 7, 3);
-    ctx.fillStyle = '#80ff8f';
-    ctx.fillRect(8, 9, 17, 5);
-    ctx.fillRect(25, 6, 7, 4);
-    ctx.fillStyle = '#fff0a6';
-    ctx.fillRect(16, 13, 7, 3);
-    drawBib(ctx, 15, 12, 9, 6, DINO_BIB_NUMBER);
-    ctx.fillStyle = '#111943';
-    ctx.fillRect(30, 7, 2, 2);
-    ctx.fillStyle = '#ffb84d';
-    ctx.fillRect(9, 18, 11, 3);
-    ctx.fillRect(23, 18, 10, 3);
+    ctx.clearRect(0, 0, 56, 34);
+    const outline = '#102c35';
+    const greenMid = '#20b865';
+    const greenLight = '#77ff92';
+    const greenDark = '#117a4b';
+    const belly = '#ffe66d';
+    const purple = '#9c2cff';
+    const purpleLight = '#e078ff';
+    const shoe = '#7d27e8';
+    const sole = '#fff6d8';
+
+    ctx.fillStyle = outline;
+    ctx.fillRect(3, 23, 13, 4);
+    ctx.fillRect(8, 20, 5, 4);
+    ctx.fillStyle = greenMid;
+    ctx.fillRect(5, 24, 10, 2);
+    ctx.fillStyle = purple;
+    ctx.fillRect(9, 20, 3, 3);
+
+    ctx.fillStyle = outline;
+    ctx.fillRect(8, 16, 10, 10);
+    ctx.fillRect(5, 22, 9, 5);
+    ctx.fillStyle = purple;
+    ctx.fillRect(9, 17, 8, 8);
+    ctx.fillStyle = purpleLight;
+    ctx.fillRect(6, 23, 7, 2);
+
+    ctx.fillStyle = outline;
+    ctx.fillRect(11, 16, 27, 11);
+    ctx.fillRect(16, 12, 18, 8);
+    ctx.fillStyle = greenDark;
+    ctx.fillRect(12, 17, 25, 9);
+    ctx.fillStyle = greenMid;
+    ctx.fillRect(16, 14, 18, 6);
+    ctx.fillStyle = belly;
+    ctx.fillRect(19, 16, 11, 7);
+    drawDragonBib(ctx, 23, 17, 10, 10);
+
+    ctx.fillStyle = outline;
+    ctx.fillRect(31, 8, 18, 15);
+    ctx.fillRect(44, 13, 10, 9);
+    ctx.fillRect(32, 5, 7, 5);
+    ctx.fillStyle = greenMid;
+    ctx.fillRect(32, 9, 16, 13);
+    ctx.fillRect(44, 14, 8, 7);
+    ctx.fillStyle = greenLight;
+    ctx.fillRect(34, 10, 12, 4);
+    ctx.fillRect(45, 15, 6, 3);
+    ctx.fillRect(34, 6, 3, 3);
+
+    ctx.fillStyle = outline;
+    ctx.fillRect(24, 9, 9, 4);
+    ctx.fillRect(22, 14, 10, 5);
+    ctx.fillStyle = purpleLight;
+    ctx.fillRect(26, 10, 7, 2);
+    ctx.fillStyle = purple;
+    ctx.fillRect(24, 15, 8, 3);
+    ctx.fillStyle = outline;
+    ctx.fillRect(31, 10, 20, 5);
+    ctx.fillStyle = purple;
+    ctx.fillRect(32, 11, 18, 3);
+    ctx.fillStyle = purpleLight;
+    ctx.fillRect(33, 11, 12, 1);
+
+    drawDragonEye(ctx, 39, 12);
+    ctx.fillStyle = outline;
+    ctx.fillRect(50, 17, 2, 2);
+    ctx.fillRect(45, 22, 6, 1);
+
+    ctx.fillStyle = outline;
+    ctx.fillRect(15, 26, 14, 5);
+    ctx.fillRect(34, 26, 14, 5);
+    ctx.fillStyle = shoe;
+    ctx.fillRect(16, 27, 13, 3);
+    ctx.fillRect(35, 27, 13, 3);
+    ctx.fillStyle = purpleLight;
+    ctx.fillRect(18, 27, 8, 1);
+    ctx.fillRect(37, 27, 8, 1);
+    ctx.fillStyle = sole;
+    ctx.fillRect(16, 30, 13, 1);
+    ctx.fillRect(35, 30, 13, 1);
+
+    ctx.fillStyle = outline;
+    ctx.fillRect(35, 22, 6, 4);
+    ctx.fillStyle = greenMid;
+    ctx.fillRect(36, 22, 5, 3);
   }
+
 
   function drawCactus(ctx) {
     ctx.clearRect(0, 0, 22, 32);

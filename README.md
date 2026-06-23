@@ -52,8 +52,9 @@
 
 ## Где менять ассеты
 
-Сейчас включены generated placeholder textures в `src/main.js`.
-Когда будут готовы реальные PNG/spritesheet:
+Главный персонаж уже загружается из PNG в `assets/sprites/`: это зелёный дракончик с фиолетовой повязкой, крыльями, кроссовками и номером **1** на нагруднике. Для него есть кадры бега, прыжка и слайда.
+
+Остальные ассеты прототипа пока создаются как generated placeholder textures в `src/main.js`. Когда будут готовы реальные PNG/spritesheet для окружения:
 
 1. Положить файлы в `assets/sprites/` и `assets/backgrounds/`.
 2. Обновить пути/ключи в `ASSETS` в `src/main.js`.
